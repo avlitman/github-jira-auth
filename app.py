@@ -7,7 +7,7 @@ app = Flask(__name__)
 secret = os.environ['SECRET']
 forward_to = os.environ['FORWARD_TO']
 
-@app.route("/github-proxy-forwarder")
+@app.route("/github-proxy-forwarder", methods=['POST'])
 def github_proxy():
     signature_header = request.headers.get('X-Hub-Signature-256')
     hash_object = hmac.new(secret.encode('utf-8'), msg=body, digestmod=hashlib.sha256)
