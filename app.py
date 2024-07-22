@@ -35,7 +35,6 @@ def github_proxy():
 
         response = Response(res.content, res.status_code, headers)
         return response
-        # TODO send the web hook
 
 
 if __name__ == "__main__":
