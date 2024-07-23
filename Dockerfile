@@ -1,20 +1,32 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9-slim
+# Use an official Go runtime as a parent image
+FROM golang:1.18 as builder
 
-# Set the working directory in the container
+# Set the working directory inside the container
 WORKDIR /app
 
-# Copy the current directory contents into the container at /app
-COPY . /app
+# Copy go.mod and go.sum files to the working directory
+COPY go.mod go.sum ./
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# Download all dependencies
+RUN go mod download
 
-# Make port 5000 available to the world outside this container
-EXPOSE 5000
+# Copy the source code to the working directory
+COPY . .
 
-# Define environment variable
-ENV FLASK_APP=app.py
+# Build the Go application
+RUN CGO_ENABLED=0 GOOS=linux go build -o github-proxy .
 
-# Run app.py when the container launches
-CMD ["flask", "run", "--host=0.0.0.0"]
+# Use a minimal base image to run the Go application
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/github-proxy .
+
+# Expose the application port
+EXPOSE 9900
+
+# Command to run the executable
+ENTRYPOINT ["./github-proxy"]
+CMD ["--github-webhook-secret-path=/etc/webhook-github/secret", "--jira-webhook-secret-path=/etc/webhook-jira/url"]
