@@ -18,7 +18,7 @@ jobs:
       - name: Build the Docker image
         run: |
           IMAGE_NAME="quay.io/alitman_storage_ocs/github-proxy:${GITHUB_REF##*/}"
-        CONTAINER_RUNTIME=docker IMG="${IMAGE_NAME}" ${CONTAINER_RUNTIME} build -t ${IMG}
+          CONTAINER_RUNTIME=docker IMG="${IMAGE_NAME}" ${CONTAINER_RUNTIME} build -t ${IMG}
           echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
 
       - name: Push the Docker image
