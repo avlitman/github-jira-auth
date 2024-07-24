@@ -2,7 +2,7 @@ name: github-proxy
 on:
   release:
     types:
-      - published
+      - edited
 
 jobs:
   build:
