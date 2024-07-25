@@ -6,9 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
+	"os"
 )
 
 func main() {
@@ -16,19 +17,26 @@ func main() {
 	jiraWebhookURLPath := flag.String("jira-webhook-secret-path", "", "Path to the JIRA webhook URL")
 	flag.Parse()
 
-	githubSecret, err := ioutil.ReadFile(*githubSecretPath)
+	githubSecret, err := os.ReadFile(*githubSecretPath)
 	if err != nil {
 		log.Fatalf("Failed to read GitHub secret: %v", err)
 	}
 
-	jiraWebhookURL, err := ioutil.ReadFile(*jiraWebhookURLPath)
+	jiraWebhookURL, err := os.ReadFile(*jiraWebhookURLPath)
 	if err != nil {
 		log.Fatalf("Failed to read JIRA webhook URL: %v", err)
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.Handle("/", githubHandler(githubSecret, jiraWebhookURL))
+
+	log.Println("Listening on port 9900...")
+	log.Fatal(http.ListenAndServe(":9900", nil))
+}
+
+func githubHandler(githubSecret, jiraWebhookURL []byte) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		signature := r.Header.Get("X-Hub-Signature-256")
-		payload, err := ioutil.ReadAll(r.Body)
+		payload, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Printf("Error reading request body: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -41,9 +49,6 @@ func main() {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		}
 	})
-
-	log.Println("Listening on port 9900...")
-	log.Fatal(http.ListenAndServe(":9900", nil))
 }
 
 func verifySignature(secret []byte, signature string, payload []byte) bool {
@@ -64,14 +69,9 @@ func forwardToJira(url string, payload []byte, w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Copy selected headers
 	for _, h := range []string{"Accept", "Content-Type", "User-Agent", "X-GitHub-Delivery", "X-GitHub-Event", "X-GitHub-Hook-ID", "X-GitHub-Hook-Installation-Target-ID", "X-GitHub-Hook-Installation-Target-Type"} {
 		req.Header.Set(h, r.Header.Get(h))
 	}
-
-	// Remove signature headers
-	req.Header.Del("X-Hub-Signature")
-	req.Header.Del("X-Hub-Signature-256")
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -82,7 +82,7 @@ func forwardToJira(url string, payload []byte, w http.ResponseWriter, r *http.Re
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Error reading response from JIRA: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -90,12 +90,4 @@ func forwardToJira(url string, payload []byte, w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(body)
-}
-
-func copyHeaders(source http.Header, destination http.Header) {
-	for key, values := range source {
-		for _, value := range values {
-			destination.Add(key, value)
-		}
-	}
 }
