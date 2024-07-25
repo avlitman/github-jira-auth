@@ -27,7 +27,7 @@ func main() {
 		log.Fatalf("Failed to read JIRA webhook URL: %v", err)
 	}
 
-	http.Handle("/", githubHandler(githubSecret, jiraWebhookURL))
+	http.Handle("/", logger(githubHandler(githubSecret, jiraWebhookURL)))
 
 	log.Println("Listening on port 9900...")
 	log.Fatal(http.ListenAndServe(":9900", nil))
@@ -72,6 +72,7 @@ func forwardToJira(url string, payload []byte, w http.ResponseWriter, r *http.Re
 	}
 
 	client := &http.Client{}
+	log.Printf("Sending a post request to Jira")
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Error forwarding request to JIRA: %v", err)
@@ -88,4 +89,11 @@ func forwardToJira(url string, payload []byte, w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(body)
+}
+
+func logger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Got request from %s: %s %s", r.RemoteAddr, r.Method, r.URL)
+		next.ServeHTTP(w, r)
+	})
 }
