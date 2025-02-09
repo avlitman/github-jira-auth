@@ -29,4 +29,3 @@ EXPOSE 9900
 
 # Command to run the executable
 ENTRYPOINT ["./github-proxy"]
-CMD ["--github-webhook-secret-path=/etc/webhook-github/secret", "--jira-webhook-secret-path=/etc/webhook-jira/url"]

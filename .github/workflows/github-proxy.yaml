@@ -19,9 +19,11 @@ jobs:
         run: |
           IMAGE_NAME="quay.io/alitman_storage_ocs/github-proxy:${GITHUB_REF##*/}"
           docker build -t "${IMAGE_NAME}" .
+          docker tag "${IMAGE_NAME}" "quay.io/alitman_storage_ocs/github-proxy:latest"
           echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
 
       - name: Push the Docker image
         run: |
           docker push "${{ env.IMAGE_NAME }}"
+          docker push "quay.io/alitman_storage_ocs/github-proxy:latest"
 

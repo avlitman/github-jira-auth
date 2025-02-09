@@ -5,55 +5,15 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"flag"
 	"io"
 	"log"
 	"net/http"
 	"os"
 )
 
-func main() {
-	githubSecretPath := flag.String("github-webhook-secret-path", "", "Path to the GitHub secret")
-	jiraWebhookURLPath := flag.String("jira-webhook-secret-path", "", "Path to the JIRA webhook URL")
-	flag.Parse()
-
-	githubSecret, err := os.ReadFile(*githubSecretPath)
-	if err != nil {
-		log.Fatalf("Failed to read GitHub secret: %v", err)
-	}
-
-	jiraWebhookURL, err := os.ReadFile(*jiraWebhookURLPath)
-	if err != nil {
-		log.Fatalf("Failed to read JIRA webhook URL: %v", err)
-	}
-
-	http.Handle("/", logger(githubHandler(githubSecret, jiraWebhookURL)))
-
-	log.Println("Listening on port 9900...")
-	log.Fatal(http.ListenAndServe(":9900", nil))
-}
-
-func githubHandler(githubSecret, jiraWebhookURL []byte) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		signature := r.Header.Get("X-Hub-Signature-256")
-		payload, err := io.ReadAll(r.Body)
-		if err != nil {
-			log.Printf("Error reading request body: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-
-		if verifySignature(githubSecret, signature, payload) {
-			forwardToJira(string(jiraWebhookURL), payload, w, r)
-		} else {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		}
-	})
-}
-
-func verifySignature(secret []byte, signature string, payload []byte) bool {
-	mac := hmac.New(sha256.New, secret)
-	mac.Write(payload)
+func verifySignature(secret, signature string, body []byte) bool {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
 	expectedMAC := mac.Sum(nil)
 	expectedSignature := "sha256=" + hex.EncodeToString(expectedMAC)
 	return hmac.Equal([]byte(expectedSignature), []byte(signature))
@@ -67,12 +27,16 @@ func forwardToJira(url string, payload []byte, w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	for _, h := range []string{"Accept", "Content-Type", "User-Agent", "X-GitHub-Delivery", "X-GitHub-Event", "X-GitHub-Hook-ID", "X-GitHub-Hook-Installation-Target-ID", "X-GitHub-Hook-Installation-Target-Type"} {
+	for _, h := range []string{
+		"Accept", "Content-Type", "User-Agent",
+		"X-GitHub-Delivery", "X-GitHub-Event",
+		"X-GitHub-Hook-ID", "X-GitHub-Hook-Installation-Target-ID",
+		"X-GitHub-Hook-Installation-Target-Type"} {
 		req.Header.Set(h, r.Header.Get(h))
 	}
 
 	client := &http.Client{}
-	log.Printf("Sending a post request to Jira")
+	log.Printf("Forwarding webhook to Jira: %s", url)
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Error forwarding request to JIRA: %v", err)
@@ -87,13 +51,51 @@ func forwardToJira(url string, payload []byte, w http.ResponseWriter, r *http.Re
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("JIRA response status: %d", resp.StatusCode)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(body)
 }
 
-func logger(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Got request from %s: %s %s", r.RemoteAddr, r.Method, r.URL)
-		next.ServeHTTP(w, r)
-	})
+func handler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
+
+	signature := r.Header.Get("X-Hub-Signature-256")
+	if signature == "" {
+		http.Error(w, "Missing signature", http.StatusUnauthorized)
+		return
+	}
+
+	githubSecret := os.Getenv("GITHUB_SECRET")
+	jiraURL := os.Getenv("JIRA_URL")
+	if githubSecret == "" || jiraURL == "" {
+		log.Println("Missing GITHUB_SECRET or JIRA_URL environment variables")
+		http.Error(w, "Server misconfiguration", http.StatusInternalServerError)
+		return
+	}
+
+	if !verifySignature(githubSecret, signature, body) {
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	log.Printf("Received valid webhook: %s", string(body))
+
+	forwardToJira(jiraURL, body, w, r)
+}
+
+func main() {
+	http.HandleFunc("/", handler)
+	log.Println("Server listening on port 9900...")
+	log.Fatal(http.ListenAndServe(":9900", nil))
 }
