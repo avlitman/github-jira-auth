@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
+	b64 "encoding/base64"
 	"encoding/hex"
 	"io"
 	"log"
@@ -75,6 +76,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing signature", http.StatusUnauthorized)
 		return
 	}
+
+	log.Printf(b64.StdEncoding.EncodeToString([]byte(signature)))
+	log.Printf(b64.StdEncoding.EncodeToString(body))
 
 	githubSecret := os.Getenv("GITHUB_SECRET")
 	jiraURL := os.Getenv("JIRA_URL")
