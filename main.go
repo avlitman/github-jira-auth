@@ -12,29 +12,35 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
-// verifySignature computes the expected signature using the secret and compares it to the provided signature.
-// It returns a descriptive error when the validation fails.
-func verifySignature(secret, signature string, body []byte) (bool, error) {
-	if signature == "" {
-		return false, errors.New("missing signature header")
+// verifySignature computes the expected signature using the hex-encoded secret,
+// normalizes both signatures to lower case, and compares them.
+func verifySignature(secretHex, signature string, body []byte) (bool, error) {
+	// Decode the hex-encoded secret.
+	secret, err := hex.DecodeString(secretHex)
+	if err != nil {
+		return false, fmt.Errorf("failed to decode secret: %v", err)
 	}
 
-	mac := hmac.New(sha256.New, []byte(secret))
+	mac := hmac.New(sha256.New, secret)
 	if _, err := mac.Write(body); err != nil {
 		return false, fmt.Errorf("failed to compute HMAC: %v", err)
 	}
 	expectedMAC := mac.Sum(nil)
 	expectedSignature := "sha256=" + hex.EncodeToString(expectedMAC)
 
-	// Log both computed and received signatures for debugging.
-	// (Note: Be careful about logging secrets in production.)
-	log.Printf("DEBUG: Computed signature: %s", expectedSignature)
-	log.Printf("DEBUG: Received signature: %s", signature)
+	// Normalize both signatures to lower case.
+	normalizedExpected := strings.ToLower(expectedSignature)
+	normalizedReceived := strings.ToLower(signature)
 
-	if !hmac.Equal([]byte(expectedSignature), []byte(signature)) {
-		return false, fmt.Errorf("signature mismatch: expected '%s', got '%s'", expectedSignature, signature)
+	// Debug logs.
+	log.Printf("DEBUG: Computed signature (normalized): %s", normalizedExpected)
+	log.Printf("DEBUG: Received signature (normalized): %s", normalizedReceived)
+
+	if !hmac.Equal([]byte(normalizedExpected), []byte(normalizedReceived)) {
+		return false, fmt.Errorf("signature mismatch: expected '%s', got '%s'", normalizedExpected, normalizedReceived)
 	}
 	return true, nil
 }
