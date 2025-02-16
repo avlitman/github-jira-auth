@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -28,13 +27,8 @@ func verifySignature(secret, signature string, body []byte) (bool, error) {
 	expectedMAC := mac.Sum(nil)
 	expectedSignature := "sha256=" + hex.EncodeToString(expectedMAC)
 
-	// Log both computed and received signatures for debugging.
-	// (Note: Be careful about logging secrets in production.)
-	log.Printf("DEBUG: Computed signature: %s", expectedSignature)
-	log.Printf("DEBUG: Received signature: %s", signature)
-
 	if !hmac.Equal([]byte(expectedSignature), []byte(signature)) {
-		return false, fmt.Errorf("signature mismatch: expected '%s', got '%s'", expectedSignature, signature)
+		return false, fmt.Errorf("signature mismatch")
 	}
 	return true, nil
 }
@@ -87,7 +81,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("Error reading request body: %v", err)
 		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
 		return
 	}
@@ -95,14 +88,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	signature := r.Header.Get("X-Hub-Signature-256")
 	if signature == "" {
-		log.Printf("Missing X-Hub-Signature-256 header")
 		http.Error(w, "Missing signature", http.StatusUnauthorized)
 		return
 	}
-
-	// Log the signature and body (base64 encoded) to help with debugging.
-	log.Printf("DEBUG: Signature (base64): %s", base64.StdEncoding.EncodeToString([]byte(signature)))
-	log.Printf("DEBUG: Body (base64): %s", base64.StdEncoding.EncodeToString(body))
 
 	githubSecret := os.Getenv("GITHUB_SECRET")
 	jiraURL := os.Getenv("JIRA_URL")
