@@ -1,0 +1,158 @@
+- name: GitHub Jira Auth Setup
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    github_proxy_image: quay.io/alitman_storage_ocs/github-proxy:latest
+    github_proxy_env_file: /etc/github-jira-proxy
+    container_name: github-jira-proxy
+    caddy_log_to_file: false
+    templates:
+      caddyfile: |
+        # This file is managed by Ansible, do not edit it manually
+        {% if caddy_log_to_file | bool %}
+        # {
+        #   log access-json {
+        #   output file /var/log/caddy/caddy-access.json
+        #   format json
+        #   }
+        # }
+        {% endif %}
+        {{ inventory_hostname }} {
+        {% if caddy_log_to_file | bool %}
+                # log access-json
+        {% endif %}
+                # Set this path to your site's directory.
+                root * /usr/share/caddy
+
+                reverse_proxy localhost:9900
+        }
+      containerfile: |
+        # This file is managed by Ansible, do not edit it manually
+        [Unit]
+        Description=A container {{ container_name }}
+
+        [Container]
+        Image={{ github_proxy_image }}
+        Pull=always
+        EnvironmentFile={{ github_proxy_env_file }}
+        PublishPort=127.0.0.1:9900:9900
+
+        [Service]
+        # Restart service when sleep finishes
+        Restart=always
+
+        [Install]
+        WantedBy=multi-user.target
+
+  handlers:
+    - name: Restart Caddy
+      ansible.builtin.systemd:
+        name: caddy
+        state: restarted
+    - name: Restart {{ container_name }}
+      ansible.builtin.systemd:
+        name: "{{ container_name }}"
+        state: restarted
+
+  tasks:
+
+    - name: Asserts
+      ansible.builtin.assert:
+        that:
+          - github_secret is defined
+          - github_secret | length > 0
+          - jira_url is defined
+          - jira_url | length > 0
+
+    - name: Install dnf-plugins-core (for COPR support)
+      ansible.builtin.dnf:
+        name: "dnf-command(copr)"
+        state: present
+
+    - name: Enable Caddy COPR repository
+      community.general.copr:
+        name: '@caddy/caddy'
+
+    - name: Install packages
+      ansible.builtin.dnf:
+        name:
+          - caddy
+          - podman
+          - firewalld
+          - tmux
+        state: present
+
+    - name: Create systemd quadlet container file
+      tags: container
+      notify:
+        - Restart {{ container_name }}
+      ansible.builtin.copy:
+        dest: /etc/containers/systemd/{{ container_name }}.container
+        owner: root
+        mode: "0644"
+        content: "{{ templates.containerfile }}"
+
+    - name: Create the EnvironmentFile to be used by the container
+      ansible.builtin.copy:
+        dest: "{{ github_proxy_env_file }}"
+        owner: root
+        mode: "0600"
+        content: |
+          # This file is managed by Ansible, do not edit it manually
+          GITHUB_SECRET={{ github_secret }}
+          JIRA_URL={{ jira_url }}
+
+    - name: Setup caddy as reverse-proxy
+      tags: caddy
+      notify:
+        - Restart Caddy
+      ansible.builtin.copy:
+        dest: /etc/caddy/Caddyfile
+        owner: root
+        mode: "0644"
+        content: "{{ templates.caddyfile }}"
+        # validate: caddy validate --config %s
+
+    - name: Create caddy log folder
+      tags: caddy
+      # when: caddy_log_to_file
+      ansible.builtin.file:
+        dest: /var/log/caddy
+        state: directory
+        mode: "0755"
+        owner: caddy
+        group: caddy
+
+    - name: Start and enable the container
+      tags: [container]
+      ansible.builtin.systemd:
+        name: "{{ container_name }}"
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Start and enable caddy
+      tags: [caddy]
+      ansible.builtin.systemd:
+        name: caddy
+        state: started
+        enabled: true
+
+    - name: Enable and start firewalld
+      tags: [firewalld]
+      ansible.builtin.systemd:
+        name: firewalld
+        state: started
+        enabled: true
+
+    - name: Open firewall ports
+      tags: [firewalld]
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop:
+        - https
+        - http
