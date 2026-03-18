@@ -62,6 +62,7 @@ Add the following content:
 ```bash
 GITHUB_SECRET=your_github_secret_here
 JIRA_URL=https://your_jira_url_here
+JIRA_AUTOMATION_WEBHOOK_TOKEN=your_jira_automation_webhook_token_here
 ```
 
 
