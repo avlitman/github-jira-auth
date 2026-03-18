@@ -33,7 +33,7 @@ func verifySignature(secret, signature string, body []byte) (bool, error) {
 	return true, nil
 }
 
-func forwardToJira(url string, payload []byte, w http.ResponseWriter, r *http.Request) {
+func forwardToJira(url string, automationToken string, payload []byte, w http.ResponseWriter, r *http.Request) {
 	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
 	if err != nil {
 		log.Printf("Error creating request to JIRA: %v", err)
@@ -50,6 +50,8 @@ func forwardToJira(url string, payload []byte, w http.ResponseWriter, r *http.Re
 	} {
 		req.Header.Set(h, r.Header.Get(h))
 	}
+
+	req.Header.Set("X-Automation-Webhook-Token", automationToken)
 
 	client := &http.Client{}
 	log.Printf("Forwarding webhook to Jira: %s", url)
@@ -94,8 +96,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	githubSecret := os.Getenv("GITHUB_SECRET")
 	jiraURL := os.Getenv("JIRA_URL")
-	if githubSecret == "" || jiraURL == "" {
-		log.Println("Missing GITHUB_SECRET or JIRA_URL environment variables")
+	jiraAutomationToken := os.Getenv("JIRA_AUTOMATION_WEBHOOK_TOKEN")
+	if githubSecret == "" || jiraURL == "" || jiraAutomationToken == "" {
+		log.Println("Missing GITHUB_SECRET, JIRA_URL, or JIRA_AUTOMATION_WEBHOOK_TOKEN environment variables")
 		http.Error(w, "Server misconfiguration", http.StatusInternalServerError)
 		return
 	}
@@ -108,7 +111,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Received valid webhook: %s", string(body))
-	forwardToJira(jiraURL, body, w, r)
+	forwardToJira(jiraURL, jiraAutomationToken, body, w, r)
 }
 
 func main() {
